@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+import sys
+import argparse
+import os
+import base64
+
+LOCAL_PI_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi_digits.txt")
+
+def load_pi_database():
+    if not os.path.exists(LOCAL_PI_FILE):
+        print(f"[!] Error: 'pi_digits.txt' not found in project directory.", file=sys.stderr)
+        sys.exit(1)
+    with open(LOCAL_PI_FILE, "r") as f:
+        return f.read()
+
+def encode_varint(number: int) -> bytes:
+    out = bytearray()
+    while True:
+        towrite = number & 0x7f
+        number >>= 7
+        if number:
+            out.append(towrite | 0x80)
+        else:
+            out.append(towrite)
+            break
+    return bytes(out)
+
+def decode_varint(stream, pos: int):
+    result = 0
+    shift = 0
+    while True:
+        b = stream[pos]
+        pos += 1
+        result |= (b & 0x7f) << shift
+        if not (b & 0x80):
+            break
+        shift += 7
+    return result, pos
+
+def encode_signed(n: int) -> bytes:
+    """Zigzag encoding: packs positive and negative integers into a single unsigned varint."""
+    val = (n << 1) ^ (n >> 63)
+    return encode_varint(val)
+
+def decode_signed(stream, pos: int):
+    val, pos = decode_varint(stream, pos)
+    n = (val >> 1) ^ -(val & 1)
+    return n, pos
+
+def chunk_text(text: str, max_chunk=2):
+    return [text[i:i+max_chunk] for i in range(0, len(text), max_chunk)]
+
+def encode_message(message: str, pi_data: str) -> str:
+    chunks = chunk_text(message)
+    payload = bytearray()
+    last_pos = 0
+
+    for chunk in chunks:
+        target_digits = "".join(str(ord(c)).zfill(3) for c in chunk)
+        pos = pi_data.find(target_digits)
+        if pos == -1:
+            raise ValueError(f"Chunk '{chunk}' not found in Pi database!")
+
+        delta = pos - last_pos
+        last_pos = pos
+
+        payload.extend(encode_varint(len(chunk)))
+        payload.extend(encode_signed(delta)) # Packs magnitude + sign together seamlessly
+
+    # Use URL-safe Base64 instead of Hex for a much shorter text string
+    return base64.urlsafe_b64encode(payload).decode('utf-8').rstrip('=')
+
+def decode_message(encoded_str: str, pi_data: str) -> str:
+    # Add padding back if necessary for Base64 decoding
+    padding = '=' * (-len(encoded_str) % 4)
+    payload = base64.urlsafe_b64decode(encoded_str + padding)
+
+    decoded_chars = []
+    pos = 0
+    last_pi_pos = 0
+
+    while pos < len(payload):
+        chunk_len, pos = decode_varint(payload, pos)
+        delta, pos = decode_signed(payload, pos)
+
+        current_pi_pos = last_pi_pos + delta
+        last_pi_pos = current_pi_pos
+
+        digit_slice_len = chunk_len * 3
+        digit_slice = pi_data[current_pi_pos : current_pi_pos + digit_slice_len]
+
+        for i in range(0, len(digit_slice), 3):
+            char_code = int(digit_slice[i:i+3])
+            decoded_chars.append(chr(char_code))
+
+    return "".join(decoded_chars)
+
+def main():
+    parser = argparse.ArgumentParser(description="PiFS: Ultra-compact Pi coordinate cipher.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-e", "--encode", metavar="TEXT")
+    group.add_argument("-d", "--decode", metavar="PAYLOAD")
+
+    args = parser.parse_args()
+    pi_db = load_pi_database()
+
+    try:
+        if args.encode:
+            print(encode_message(args.encode, pi_db))
+        elif args.decode:
+            print(decode_message(args.decode, pi_db))
+    except Exception as e:
+        print(f"[!] Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
