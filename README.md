@@ -11,13 +11,14 @@ A steganographic coordinate-pointer cipher that turns the digits of $\pi$ into a
 Make the script executable:
 ```bash
 chmod +x pifs
-
+```
 Encoding:
 
 ```bash
-pifs -e "String to be encoded."
-
+python3 pifs -e "String to be encoded."
+```
 Decoding:
 
 ```bash
-pifs -d "Output of a previous encoded string."
+python3 pifs -d "Output of a previous encoded string."
+```
