@@ -20,5 +20,5 @@ python3 pifs -e "String to be encoded."
 Decoding:
 
 ```bash
-python3 pifs -d "Output of a previous encoded string."
+python3 pifs -d "Output of a previously encoded string."
 ```
